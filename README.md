@@ -1,5 +1,7 @@
 # Bank
 
-![](innowisesql.png)
+![](bank-task/innowisesql.png)
 
-![](fridge-rent.png)
+# Fridge Rent
+
+![](fridge-rent-task/fridge-rent.png)
