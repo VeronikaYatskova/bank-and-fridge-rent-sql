@@ -1,6 +1,6 @@
 # Bank
 
-![](bank-task/innowisesql.png)
+![](bank-task/bank.png)
 
 # Fridge Rent
 
