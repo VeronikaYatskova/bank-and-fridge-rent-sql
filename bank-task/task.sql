@@ -130,7 +130,7 @@ END;
 
 ALTER TRIGGER [dbo].[Account_UPDATE]
    ON [dbo].[Account]
-   AFTER UPDATE
+   AFTER UPDATE, INSERT
    AS
 BEGIN
 	DECLARE @balance decimal(10, 2);
