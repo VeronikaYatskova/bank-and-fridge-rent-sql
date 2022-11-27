@@ -6,46 +6,39 @@ WHERE Upper(City.name) = Upper('Homiel')
 
 -- Получить список карточек с указанием имени владельца, баланса и названия банка
 
-SELECT cc.credit_card_id, cc.balance, Customer.name, Bank.name
-FROM Credit_Card as cc
-	JOIN Account ON cc.account_id = Account.id
-	JOIN Customer ON Account.id = Customer.account_id
-	JOIN Bank ON Account.bank_id = Bank.id
+SELECT cc.credit_card_id, c.name, cc.balance, a.bank_id FROM Credit_Card AS cc
+	JOIN Account AS a ON a.id = cc.account_id 
+	JOIN Customer AS c ON c.id = a.customer_id
 
 -- Показать список банковских аккаунтов,
 -- у которых баланс не совпадает с суммой баланса по карточкам.
 -- В отдельной колонке вывести разницу
 
-SELECT DISTINCT Account.id as account,
-	Account.balance,
-	SUM(cc.balance) as sum,
-	(Account.balance - sum(cc.balance)) as difference
-FROM Credit_Card as cc
-	JOIN Account ON cc.account_id = Account.id
-GROUP BY Account.id, Account.balance
-HAVING Account.balance > sum(cc.balance)
+SELECT DISTINCT a.id, a.balance, SUM(cc.balance) AS 'sum', a.balance - SUM(cc.balance) AS 'difference'
+FROM Account AS a
+	JOIN Credit_Card AS cc ON cc.account_id = a.id
+GROUP BY a.id, a.balance
+HAVING a.balance > SUM(cc.balance)
 
 -- Вывести кол-во банковских карточек для каждого соц статуса (2 реализации, GROUP BY и подзапросом)
 
 -- Group By
 
-SELECT Status.id as 'status id', COUNT(cc.credit_card_id) as cards 
-FROM Credit_Card as cc
-	JOIN Account ON Account.id = cc.account_id
-	JOIN Customer ON Customer.account_id = Account.id
-	JOIN Status ON Status.Id = Customer.status_id
-GROUP BY Status.id
+SELECT s.id AS status, COUNT(cc.credit_card_id) AS count
+FROM Credit_Card AS cc
+	JOIN Account AS a ON a.id = cc.account_id
+	JOIN Customer AS c ON c.id = a.customer_id
+	JOIN Status AS s ON s.id = c.status_id 
+GROUP BY s.id
 
 -- Inner Query
 
-SELECT Status.id as 'status id', 
-(SELECT COUNT(acc.credit_card_id) 
-	FROM Credit_Card as acc, Account, Customer
-    WHERE Customer.status_id = Status.id AND
-		  Customer.account_id = Account.id AND
-	      Account.id = acc.account_id
-) as cards 
-FROM Status
+SELECT s.id, (SELECT COUNT(cc.credit_card_id) FROM Credit_Card AS cc
+				JOIN Account AS a ON a.id = cc.account_id
+				JOIN Customer AS c ON c.id = a.customer_id
+			  WHERE s.id = c.status_id) 
+FROM Status AS s
+
 
 -- Написать stored procedure которая будет добавлять по 10$ на каждый банковский аккаунт
 -- для определенного соц статуса. 
@@ -60,32 +53,32 @@ AS
 BEGIN
 	 IF NOT EXISTS (SELECT id FROM Status WHERE id = @status_id)
 	 PRINT 'No such status in the table'
-	 ELSE IF NOT EXISTS(SELECT Account.id FROM Account
-							JOIN Customer ON Customer.account_id = Account.id
-						WHERE Customer.status_id = @status_id)
+	 ELSE IF NOT EXISTS(SELECT * FROM Customer WHERE status_id = @status_id)
 	 PRINT 'No cards with this status'
 	 ELSE
 	 BEGIN
 		UPDATE Account
 		SET Account.balance = Account.balance + (10 * 2.55)
 		FROM Customer, Status
-		WHERE Account.id = Customer.account_id AND Customer.status_id = @status_id
+		WHERE Account.customer_id = Customer.id AND Customer.status_id = @status_id
 	 END;
 END;
+
+EXEC AddMoney '2'
 
 -- Получить список доступных средств для каждого клиента. 
 -- То есть если у клиента на банковском аккаунте 60 рублей, и у него 2 карточки по 15 рублей на каждой,
 -- то у него доступно 30 рублей для перевода на любую из карт
 
-SELECT Customer.id as Customer,
-	   acc.balance AS 'Account Balance', 
+SELECT c.id as Customer,
+	   a.balance AS 'Account Balance', 
 	   SUM (cc.balance) AS 'Cards Sum', 
-	   (acc.balance - SUM(cc.balance)) AS Available
-FROM Customer
-	JOIN Account AS acc ON acc.id = Customer.account_id
-	JOIN Credit_Card AS cc ON cc.account_id = acc.id
-GROUP BY Customer.id, acc.balance
-HAVING acc.balance - SUM(cc.balance) > 0
+	   (a.balance - SUM(cc.balance)) AS Available
+FROM Customer AS c
+	JOIN Account AS a ON a.customer_id = c.id
+	JOIN Credit_Card AS cc ON cc.account_id = a.id
+GROUP BY c.id, a.balance
+HAVING a.balance - SUM(cc.balance) >= 0
 
 -- Написать процедуру которая будет переводить определённую сумму со счёта на карту этого аккаунта.  
 -- При этом будем считать что деньги на счёту все равно останутся, просто сумма средств на карте увеличится. 
@@ -103,8 +96,8 @@ AS
 BEGIN
 	IF NOT EXISTS (SELECT * FROM Account WHERE id = @account_id)
 	PRINT 'No such account'
-	ELSE IF NOT EXISTS (SELECT acc.credit_card_id FROM Credit_Card AS acc, Account
-						WHERE Account.id = @account_id AND acc.account_id = Account.id AND acc.credit_card_id = @credit_card_id)
+	ELSE IF NOT EXISTS (SELECT cc.credit_card_id FROM Credit_Card AS cc, Account AS a
+						WHERE a.id = @account_id AND cc.account_id = a.id AND cc.credit_card_id = @credit_card_id)
 	PRINT 'No such card in the account'
 	ELSE IF NOT EXISTS (SELECT cc.account_id
 						FROM Credit_Card AS cc, Account
@@ -119,18 +112,24 @@ BEGIN
 			UPDATE Credit_Card
 			SET Credit_Card.balance = cc.balance + @transfer_money
 			FROM Credit_Card AS cc
-			WHERE cc.account_id = @account_id
+			WHERE cc.account_id = @account_id AND cc.credit_card_id = @credit_card_id
 		COMMIT TRANSACTION;
 	END;
 END;
+
+EXEC TransferMoney '1', '2', '10'
 
  -- Написать триггер на таблицы Account/Cards 
  -- чтобы нельзя была занести значения в поле баланс если это противоречит условиям  
  -- (то есть нельзя изменить значение в Account на меньшее, чем сумма балансов по всем карточкам.
 
-ALTER TRIGGER [dbo].[Account_UPDATE]
+UPDATE Account
+SET balance = '2000'
+WHERE id = '1'
+
+CREATE TRIGGER Account_UPDATE
    ON [dbo].[Account]
-   AFTER UPDATE, INSERT
+   AFTER UPDATE
    AS
 BEGIN
 	DECLARE @balance decimal(10, 2);
@@ -146,14 +145,18 @@ BEGIN
 		ROLLBACK TRANSACTION
 	END
 	ELSE
-		PRINT 'changed'
+		PRINT 'done'
 END
 
 -- И соответственно нельзя изменить баланс карты если в итоге сумма на картах будет больше чем баланс аккаунта)
 
-ALTER TRIGGER [dbo].[Card_UPDATE]
+UPDATE Credit_Card
+SET balance = '130'
+WHERE credit_card_id = '1'
+
+CREATE TRIGGER Card_UPDATE
 ON [dbo].[Credit_Card]
-AFTER UPDATE, INSERT
+AFTER UPDATE
 AS
 BEGIN
 	DECLARE @card_balance decimal(10, 2)
@@ -174,5 +177,5 @@ BEGIN
 		ROLLBACK TRANSACTION
 	END
 	ELSE
-		PRINT 'changed'
+		PRINT 'done'
 END
